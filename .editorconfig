@@ -1,0 +1,5 @@
+root = true
+
+[*.{htm,html,css,js,sh,lua,rb,md}]
+charset = utf-8
+end_of_line = lf
