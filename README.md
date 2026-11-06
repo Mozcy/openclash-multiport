@@ -6,6 +6,10 @@
 支持多端口代理的新增、编辑、删除和启停，可为每个端口选择出口节点、设置独立账号密码。
 </div>
 
+<p align="center" style="font-weight: bold">
+  本项目认可并支持 <a href="https://linux.do/">LINUX DO</a> 社区。
+</p>
+
 <p align="center">
   <strong>README</strong> &nbsp;|&nbsp;
   <a href="效果演示.md">效果演示</a> &nbsp;|&nbsp;
