@@ -1,8 +1,17 @@
-# OpenClash 代理配置
+<div align="center">
+<img src="https://raw.githubusercontent.com/Mozcy/openclash-multiport/refs/heads/main/logo.png" alt="OpenClash" width="160" />
 
-基于 OpenClash v0.48.002 的状态页定制模块。
+# OpenClash-Multiport
+基于 OpenClash 的多端口代理定制模块，
+支持多端口代理的新增、编辑、删除和启停，可为每个端口选择出口节点、设置独立账号密码。
+</div>
 
-支持多端口代理的新增、编辑、删除和启停，可为每个端口选择出口节点、设置独立账号密码。配置保存后自动校验并应用，支持地址与认证信息复制，以及批量或单独刷新延迟。
+<p align="center">
+  <strong>README</strong> &nbsp;|&nbsp;
+  <a href="效果演示.md">效果演示</a> &nbsp;|&nbsp;
+  <a href="安装说明.md">安装说明</a> &nbsp;|&nbsp;
+  <a href="实现说明.md">实现说明</a>
+</p>
 
 ## 目录
 
@@ -16,8 +25,10 @@ openclash-multiport/
 │   ├── openclash_proxy_multiport.lua       # LuCI 接口，V7
 │   └── openclash_proxy_multiport.rb        # 配置应用、持久化及端口延迟检测与节点目录，V8
 ├── install.sh                 # 路由器安装脚本
+├── 效果演示.md
 ├── 安装说明.md
 ├── 实现说明.md
+├── LICENSE                    # MIT 开源协议
 ├── SHA256SUMS                 # 文件校验值
 └── .editorconfig
 ```
@@ -70,3 +81,7 @@ sh /tmp/openclash-multiport/install.sh
 - 配置保存在路由器；旧浏览器草稿不会自动导入或启用。
 
 本次节点选择功能已完成本地交互、后端模拟及浏览器预览检查，尚未在用户路由器实测。重启后恢复、订阅更新后的恢复以及各协议客户端的使用仍应按部署环境验证。
+
+## 开源协议
+
+本项目采用 [MIT License](LICENSE)，包含基于 [OpenClash](https://github.com/vernesong/OpenClash) 状态页的修改，保留上游版权和许可声明。OpenClash、Mihomo 及其他依赖分别遵循各自的许可证。
