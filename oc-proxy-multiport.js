@@ -1,3 +1,4 @@
+// OpenClash Multiport v1.0.1
 (function () {
   'use strict';
   function init() {
@@ -11,6 +12,99 @@
     var nodeJobs = [], nodeActive = 0, nodeDelays = Object.create(null), nodeIPs = Object.create(null);
     var apiBase = root.getAttribute('data-api-base'), apiToken = root.getAttribute('data-api-token');
     var $ = function (id) { return document.getElementById('oc-mp-' + id); };
+    function setupTooltips() {
+      var tip = document.createElement('div'), owner = null;
+      tip.id = 'oc-mp-tooltip'; tip.className = 'oc-mp-tooltip';
+      tip.setAttribute('role', 'tooltip'); tip.setAttribute('popover', 'manual'); tip.hidden = true;
+      function convert(el) {
+        if (!el || !el.hasAttribute('title')) return;
+        el.setAttribute('data-oc-mp-tooltip', el.getAttribute('title'));
+        el.removeAttribute('title');
+      }
+      function scan(el) {
+        if (!el || !el.querySelectorAll) return;
+        convert(el); el.querySelectorAll('[title]').forEach(convert);
+      }
+      function hide() {
+        if (owner) {
+          var ids = (owner.getAttribute('aria-describedby') || '').split(/\s+/).filter(function (id) { return id && id !== tip.id; });
+          if (ids.length) owner.setAttribute('aria-describedby', ids.join(' '));
+          else owner.removeAttribute('aria-describedby');
+        }
+        owner = null;
+        if (typeof tip.hidePopover === 'function') { try { tip.hidePopover(); } catch (e) {} }
+        tip.hidden = true;
+      }
+      function show(el) {
+        convert(el);
+        var text = el.getAttribute('data-oc-mp-tooltip');
+        if (!text || !el.isConnected) { hide(); return; }
+        hide(); owner = el;
+        // Place the hint in the same modal, and use the top layer to escape table clipping.
+        var dialog = el.closest('dialog[open]'), parent = dialog || document.body;
+        if (tip.parentNode !== parent) parent.appendChild(tip);
+        if (window.getComputedStyle) {
+          var theme = window.getComputedStyle(root);
+          ['--bg-white', '--border-light', '--text-primary', '--text-secondary'].forEach(function (key) {
+            tip.style.setProperty(key, theme.getPropertyValue(key));
+          });
+        }
+        tip.textContent = '';
+        var lines = text.split('\n');
+        lines.forEach(function (line, index) {
+          var part = document.createElement('div'); part.textContent = line;
+          part.className = 'oc-mp-tooltip-line' + (lines.length > 1 && index === lines.length - 1 && /^点击/.test(line) ? ' oc-mp-tooltip-hint' : '');
+          tip.appendChild(part);
+        });
+        var ids = (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+        ids.push(tip.id); el.setAttribute('aria-describedby', ids.join(' '));
+        tip.hidden = false;
+        if (typeof tip.showPopover === 'function') { try { tip.showPopover(); } catch (e) {} }
+        var rect = el.getBoundingClientRect(), box = tip.getBoundingClientRect();
+        var width = document.documentElement.clientWidth || window.innerWidth;
+        var height = document.documentElement.clientHeight || window.innerHeight;
+        var left = Math.max(8, Math.min(rect.left + (rect.width - box.width) / 2, width - box.width - 8));
+        var top = rect.top - box.height - 8;
+        if (top < 8) top = rect.bottom + 8;
+        top = Math.max(8, Math.min(top, height - box.height - 8));
+        tip.style.left = left + 'px'; tip.style.top = top + 'px';
+      }
+      function target(node) {
+        if (!node || !node.closest) return null;
+        var el = node.closest('[data-oc-mp-tooltip], [title]');
+        return el && root.contains(el) ? el : null;
+      }
+      root.addEventListener('pointerover', function (event) {
+        var el = target(event.target);
+        if (el && el !== owner && event.pointerType !== 'touch') show(el);
+      });
+      root.addEventListener('pointerout', function (event) {
+        if (owner && !owner.contains(event.relatedTarget)) hide();
+      });
+      root.addEventListener('focusin', function (event) { var el = target(event.target); if (el) show(el); });
+      root.addEventListener('focusout', hide);
+      root.addEventListener('click', hide);
+      root.addEventListener('close', hide, true);
+      document.addEventListener('keydown', function (event) { if (event.key === 'Escape') hide(); }, true);
+      document.addEventListener('scroll', hide, true);
+      window.addEventListener('resize', hide);
+      scan(root);
+      // Also catch titles updated by the shared clipboard helper and newly rendered rows.
+      var observer = new MutationObserver(function (records) {
+        var updated = false;
+        (records || []).forEach(function (record) {
+          if (record.type === 'attributes') {
+            if (record.target === owner && record.target.hasAttribute('title')) updated = true;
+            convert(record.target);
+          }
+          else record.addedNodes.forEach(scan);
+        });
+        if (owner && !owner.isConnected) hide();
+        else if (owner && updated) show(owner);
+      });
+      observer.observe(root, {subtree: true, childList: true, attributes: true, attributeFilter: ['title']});
+    }
+    setupTooltips();
     function message(s) { var el = $('message'); el.textContent = s; el.hidden = false; }
     function valid(e) { return e && typeof e.id === 'string' && typeof e.label === 'string' && typeof e.host === 'string' && typeof e.node === 'string' && Number.isInteger(e.port) && e.port >= 1024 && e.port <= 65535 && typeof e.enabled === 'boolean'; }
     async function request(action, payload) {
@@ -31,7 +125,11 @@
         if (response.status === 404) throw new Error('代理配置接口不存在（HTTP 404），请检查后端文件位置并重启 rpcd。');
         throw new Error('代理配置接口未返回有效 JSON（HTTP ' + response.status + '），请打开 state 接口查看错误。');
       }
-      if (!response.ok || !result.ok) throw new Error(result.error || '应用失败，请检查 OpenClash 运行状态。');
+      if (!response.ok || !result.ok) {
+        var failure = new Error(result.error || '应用失败，请检查 OpenClash 运行状态。');
+        failure.conflict = result.conflict === true;
+        throw failure;
+      }
       if (action === 'nodes') {
         if (typeof result.config !== 'string' || !Array.isArray(result.nodes) || !result.nodes.every(function (n) {
           return n && typeof n.name === 'string' && typeof n.type === 'string' && typeof n.available === 'boolean' &&
@@ -48,7 +146,8 @@
       }
       if (action === 'delay') {
         if (result.id !== payload.id || result.revision !== payload.revision ||
-            !(result.delay === null || (Number.isInteger(result.delay) && result.delay >= 0 && result.delay <= 12000))) {
+            !(result.delay === null || (Number.isInteger(result.delay) && result.delay > 0 && result.delay <= 65535)) ||
+            !(result.node === null || typeof result.node === 'string')) {
           throw new Error('后端返回的延迟数据格式错误，请更新配套后端。');
         }
         return result;
@@ -223,20 +322,18 @@
         tag.classList.add('oc-mp-delay-loading');
         var spinner = document.createElement('span'); spinner.className = 'oc-mp-delay-spinner';
         spinner.setAttribute('aria-hidden', 'true'); tag.appendChild(spinner);
-        tag.title = value.running ? '正在检测此代理…' : '等待检测此代理…';
-        tag.setAttribute('aria-label', tag.title);
+        tag.setAttribute('aria-label', value.running ? '正在检测此代理…' : '等待检测此代理…');
       } else if (value && value.delay !== null) {
         tag.classList.add('oc-mp-delay-' + (value.delay <= 200 ? 'low' : value.delay <= 500 ? 'medium' : 'high'));
         tag.textContent = value.delay + ' ';
         var unit = document.createElement('span'); unit.className = 'oc-mp-delay-unit'; unit.textContent = 'ms'; tag.appendChild(unit);
-        tag.title = '通过此代理请求 Google 204 的 HTTPS 完整耗时；点击刷新此代理';
-        tag.setAttribute('aria-label', '延迟 ' + value.delay + ' 毫秒，点击刷新此代理');
+        tag.setAttribute('aria-label', '节点延迟：' + value.delay + ' ms；点击刷新');
       } else {
         tag.classList.add('oc-mp-delay-empty'); tag.textContent = '-';
-        tag.title = (value ? value.note : target && !target.enabled ? target.note : '尚无延迟信息') + (target && target.enabled ? '；点击检测此代理' : '');
+        tag.title = value ? (value.note || '本次检测未获得有效延迟，请重试') : (target && !target.enabled ? target.note : '尚未检测节点延迟');
         tag.setAttribute('aria-label', tag.title);
       }
-      cell.title = tag.title;
+      if (tag.hasAttribute('title')) cell.title = tag.title;
       tag.addEventListener('click', function () { refreshDelays(id); });
       cell.appendChild(tag);
     }
@@ -247,7 +344,9 @@
       ids.forEach(function (key) {
         var target = probeTarget(key), previous = latencies[key];
         if (!target || (previous && previous.pending)) return;
-        var state = {pending: target.enabled, delay: null, note: target.note, address: target.address, previous: target.enabled ? previous : undefined};
+        var state = {pending: target.enabled, delay: null, node: null,
+          note: target.enabled ? '' : target.note,
+          address: target.address, previous: target.enabled ? previous : undefined};
         latencies[key] = state;
         if (target.enabled) {
           initialProbeDone[key] = true;
@@ -280,7 +379,7 @@
     }
     function drainProbes() {
       // One scheduler for batch and single-row refreshes; never duplicate a row.
-      while (!busy && activeProbes < 3 && probeQueue.length) {
+      while (!busy && activeProbes < 5 && probeQueue.length) {
         var job = probeQueue.shift();
         if (!currentProbe(job)) continue;
         activeProbes++; job.state.running = true;
@@ -290,17 +389,16 @@
     async function runProbe(job) {
       try {
         var result = await request('delay', {id: job.id, host: job.host, revision: job.revision});
-        if (currentProbe(job)) {
-          if (job.id === 'default' && defaultInfo().address !== job.address) delete latencies[job.id];
-          else latencies[job.id] = {pending: false, delay: result.delay,
-            note: result.note || '未获取到延迟', address: job.address};
-        }
+        if (!currentProbe(job)) return;
+        if (job.id === 'default' && defaultInfo().address !== job.address) { delete latencies[job.id]; return; }
+        job.state.delay = result.delay; job.state.node = result.node;
+        job.state.note = result.note || '';
       } catch (error) {
         if (currentProbe(job)) {
-          latencies[job.id] = {pending: false, delay: null, note: error.message, address: job.address};
-          message(error.message);
+          job.state.delay = null; job.state.node = null; job.state.note = error.message;
         }
       } finally {
+        if (currentProbe(job)) { job.state.pending = false; delete job.state.previous; }
         activeProbes--; drainProbes(); controls(); render();
       }
     }
@@ -559,6 +657,11 @@
     });
     $('add').addEventListener('click', function () { open(); });
     $('refresh').addEventListener('click', function () { refreshDelays(); });
+    var modeControls = document.getElementById('radio-mode');
+    if (modeControls) modeControls.addEventListener('change', function () {
+      // A mode switch changes the default port's policy, not custom listeners.
+      delete latencies.default; controls(); render();
+    });
     ['cancel', 'cancel-x'].forEach(function (id) { $(id).addEventListener('click', function () { $('dialog').close(); }); });
     controls(); render();
     request('state').then(function (result) {

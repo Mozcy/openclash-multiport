@@ -81,7 +81,7 @@
 }
 .oc .oc-dashboard-entry > span { padding-left: 36px; font-size: 12px; color: var(--text-secondary); }
 </style>
-<link rel="stylesheet" href="/luci-static/resources/openclash/css/oc-proxy-multiport.css?v=22">
+<link rel="stylesheet" href="/luci-static/resources/openclash/css/oc-proxy-multiport.css?v=1.0.1">
 </head>
 <fieldset class="cbi-section">
     <table width="100%">
@@ -342,7 +342,7 @@
   <section id="oc-multiport" class="sub-card oc-mp-card" aria-label="代理配置" data-api-base="<%=url("admin", "services", "openclash_multiport")%>" data-api-token="<%=luci.dispatcher.context.authtoken%>">
     <div class="oc-mp-header">
       <div class="card-title">代理配置 <span id="oc-mp-count" class="oc-mp-count">0 个端口</span></div>
-      <div class="oc-mp-actions"><button type="button" id="oc-mp-refresh" class="oc-mp-button oc-mp-refresh" title="分别通过每个已启用的代理端口检测延迟"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/></svg><span id="oc-mp-refresh-label">刷新延迟</span></button><button type="button" id="oc-mp-add" class="oc-mp-button oc-mp-primary">＋ 新增端口</button></div>
+      <div class="oc-mp-actions"><button type="button" id="oc-mp-refresh" class="oc-mp-button oc-mp-refresh" title="分别刷新已启用代理的 Mihomo 节点延迟"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5M6 7a7 7 0 0 1 12-1l2 3M4 15l2 3a7 7 0 0 0 12-1"/></svg><span id="oc-mp-refresh-label">刷新延迟</span></button><button type="button" id="oc-mp-add" class="oc-mp-button oc-mp-primary">＋ 新增端口</button></div>
     </div>
     <div id="oc-mp-message" class="oc-mp-notice" role="status" aria-live="polite" hidden></div>
     <div class="oc-proxy-body">
@@ -561,5 +561,5 @@
 
 <script src="/luci-static/resources/openclash/js/oc-icons.js?v=0.48.002"></script>
 <script src="/cgi-bin/luci/admin/services/openclash/translate_js?f=status&v=0.48.002&l=<%=luci.i18n.context.lang%>"></script>
-<script defer src="/luci-static/resources/openclash/js/oc-proxy-multiport.js?v=23"></script>
+<script defer src="/luci-static/resources/openclash/js/oc-proxy-multiport.js?v=1.0.1"></script>
 </html>

@@ -1,4 +1,4 @@
-# OC_MULTIPORT_BACKEND_V8 (only OpenClash's existing YAML library)
+# OC_MULTIPORT_BACKEND_VERSION: v1.0.1 (only OpenClash's existing YAML library)
 # Invoked by the authenticated LuCI controller, or the OpenClash startup hook.
 require 'yaml'
 
@@ -369,28 +369,7 @@ module OCMultiport
     {'ok'=>true, 'revision'=>data['revision'], 'entries'=>current}
   end
 
-  def probe(entry)
-    # This is a real request through THIS mixed port, not a node /delay API.
-    # Disable curlrc and bypass lists so a failed proxy cannot fall back direct.
-    options = ['curl', '--disable', '--silent', '--show-error', '--noproxy', '',
-               '--connect-timeout', '3', '--max-time', '8', '--config', '-',
-               '--proxy', "http://#{entry['host']}:#{entry['port']}", '--proxy-basic',
-               '--output', File::NULL, '--max-filesize', '4096',
-               '--write-out', "\nOC_MP_METRICS:%{http_code}:%{time_total}", DELAY_URL]
-    # Credentials stay out of argv/process listings, in private temporary stdin.
-    auth = entry['username'] && entry['password'] ? "#{entry['username']}:#{entry['password']}" : nil
-    input = auth ? "proxy-user = #{encode(auth)}\n" : ''
-    output, _, status = capture(*options, stdin_data: input)
-    _, separator, metrics = output.rpartition("\nOC_MP_METRICS:")
-    code, elapsed = metrics.strip.split(':', 2)
-    if status && status.success? && !separator.empty? && code == '204' && elapsed.to_s.match?(/\A\d+(?:\.\d+)?\z/)
-      milliseconds = (elapsed.to_f * 1000).round
-      return {'delay'=>milliseconds} if milliseconds.between?(0, 8000)
-    end
-    {'delay'=>nil, 'note'=>code == '407' ? '代理认证失败' : '连接失败、超时或测试地址不可达'}
-  end
-
-  def delay(request)
+  def probe_context(request)
     raise Failure, '延迟检测参数格式错误' unless request.is_a?(Hash) && request['id'].is_a?(String)
     data = saved
     raise Conflict, '配置已变化，请刷新页面后重新检测' unless request['revision'] == data['revision']
@@ -413,21 +392,76 @@ module OCMultiport
         raise Failure, '默认代理认证配置格式错误' unless username && password
         entry['username'], entry['password'] = username, password
       end
-      result = probe(entry)
+      note = nil
     else
       entry = data['entries'].find { |e| e['id'] == id }
       raise Failure, '未找到该代理入口，请刷新页面' unless entry
       if !entry['enabled']
-        result = {'delay'=>nil, 'note'=>'代理已停用'}
+        note = '代理已停用'
       elsif !config.fetch('listeners', []).include?(listeners([entry]).first) || !listening?(entry)
-        result = {'delay'=>nil, 'note'=>'入口尚未应用到内核'}
+        note = '入口尚未应用到内核'
       else
         raise Failure, '代理地址已不是路由器本机地址，请重新配置' unless local_ips.include?(entry['host'])
-        result = probe(entry)
+        note = nil
       end
     end
+    [data, path, original, config, entry, note]
+  end
+
+  def verify_probe(context)
+    data, path, original = context
     raise Conflict, '检测期间配置已变化，请刷新页面后重试' unless saved['revision'] == data['revision'] && runtime_path == path && File.binread(path) == original
-    {'ok'=>true, 'id'=>id, 'revision'=>data['revision']}.merge(result)
+  end
+
+  def delay_target(config, entry)
+    mode = nil
+    if entry['id'].nil?
+      mode = api(config, 'GET', '/configs', nil, 5)['mode'].to_s.downcase
+      # Rule mode can choose a different proxy for every target; never pretend
+      # GLOBAL is the default mixed port's unique working node in this mode.
+      return nil if mode == 'rule'
+      raise Failure, '无法确定默认入口的当前代理模式' unless %w[global direct].include?(mode)
+    end
+    name = mode ? (mode == 'global' ? 'GLOBAL' : 'DIRECT') : entry['node']
+    live = api(config, 'GET', '/proxies', nil, 5).fetch('proxies', {})
+    raise Failure, '内核节点列表格式错误' unless live.is_a?(Hash)
+    chain = []
+    loop do
+      raise Failure, '出口策略组存在循环引用' if chain.include?(name) || chain.length >= 64
+      info = live[name]
+      raise Failure, '出口节点或策略组尚未加载' unless info.is_a?(Hash)
+      chain << name
+      selected = info['now']
+      break unless selected.is_a?(String) && !selected.empty?
+      name = selected
+    end
+    {'name'=>name, 'selection'=>encode([mode, chain])}
+  end
+
+  def delay(request)
+    context = probe_context(request)
+    data, _, _, config, entry, note = context
+    target = nil
+    result = {'delay'=>nil, 'node'=>nil, 'note'=>note}
+    unless note
+      begin
+        target = delay_target(config, entry)
+        if target
+          result['node'] = target['name']
+          value = api(config, 'GET', '/proxies/' + url_component(target['name']) + '/delay?url=' + url_component(DELAY_URL) + '&timeout=5000', nil, 8)
+          d = value.is_a?(Hash) ? value['delay'] : nil
+          result['delay'] = d.is_a?(Integer) && d.between?(1,65535) ? d : nil
+          result['note'] = '节点连接失败或测速超时' unless result['delay']
+        else
+          result['note'] = '规则模式按目标分流，无唯一工作节点；可在节点选择中查看具体节点延迟'
+        end
+      rescue Failure
+        result['note'] = '节点测速失败，请检查内核接口和出口节点'
+      end
+      raise Conflict, '检测期间出口已切换，请重新刷新延迟' if target && delay_target(config, entry) != target
+    end
+    verify_probe(context)
+    {'ok'=>true, 'id'=>request['id'], 'revision'=>data['revision']}.merge(result)
   end
 
   def apply(request)

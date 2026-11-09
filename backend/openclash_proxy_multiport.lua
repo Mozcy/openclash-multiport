@@ -1,4 +1,4 @@
--- OC_MULTIPORT_BACKEND_V7
+-- OC_MULTIPORT_BACKEND_VERSION: v1.0.1
 module("luci.controller.openclash_proxy_multiport", package.seeall)
 
 function index()
