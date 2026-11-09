@@ -55,15 +55,20 @@ info_box() {
     [ "${#box_columns}" -le 4 ] || box_columns=120
     [ "$box_columns" -ge 24 ] || box_columns=24
     [ "$box_columns" -le 120 ] || box_columns=120
-    LC_ALL=C awk -v columns="$box_columns" '
+    LC_ALL=C awk -v columns="$box_columns" -v align="${1:-box}" '
         function rule( i) { printf "  +"; for (i=0;i<content+2;i++) printf "-"; print "+" }
         function row(s,w, pad) {
+            if (align=="right") {
+                for (pad=w;pad<content;pad++) printf " "
+                printf "%s",s
+                return
+            }
             printf "  | "
             printf "%s",s
             for (pad=w;pad<content;pad++) printf " "
             print " |"
         }
-        BEGIN {content=columns-8;rule()}
+        BEGIN {content=columns-(align=="right" ? 2 : 8);if(align!="right") rule()}
         {
             gsub(/[\001-\037\177]/, "")
             line=""; cells=0
@@ -72,12 +77,12 @@ info_box() {
                 if (c ~ /[\300-\337]/) bytes=2
                 else if (c ~ /[\340-\357]/) {bytes=3;size=2}
                 else if (c ~ /[\360-\367]/) {bytes=4;size=2}
-                if (cells+size>content) {row(line,cells);line="";cells=0}
+                if (cells+size>content) {row(line,cells);if(align=="right") printf "\n";line="";cells=0}
                 line=line substr($0,i,bytes);cells+=size;i+=bytes
             }
             row(line,cells)
         }
-        END {rule()}'
+        END {if(align!="right") rule()}'
 }
 valid_version() {
     printf '%s\n' "$1" | LC_ALL=C grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
@@ -251,7 +256,6 @@ check_openclash() {
     else
         core_version='未找到 /etc/openclash/clash'
     fi
-    printf '运行环境\nOpenClash：%s\n内核：%s\n' "${version:-未知（软件包信息不可用）}" "$core_version" | info_box
 }
 refresh_luci() {
     for cache in /tmp/luci-indexcache /tmp/luci-indexcache.*; do
@@ -370,7 +374,7 @@ download_release() {
     valid_version "$latest" || fail '发布标签须为 v主版本.次版本.修订号，例如 v1.0.1'
     current=$(source_version "$BASE")
     deployed_version=$(installed_version)
-    printf '在线更新\n当前源码：%s\n已安装版本：%s\n最新正式版：%s\n' "$current" "$deployed_version" "$latest" | info_box
+    printf '当前源码：%s\n已安装版本：%s\n最新正式版：%s\n' "$current" "$deployed_version" "$latest"
     if valid_version "$deployed_version" && version_newer "$deployed_version" "$latest"; then
         echo '已安装版本比最新正式版更新，已跳过，避免降级。'
         return 2
@@ -472,7 +476,7 @@ update_online() {
     # Keep the current process and its lock while installing the verified new files.
     install_plugin || fail '安装失败，将恢复更新前文件'
     UPDATE_MUTATING=''
-    printf '更新完成\n当前版本：%s\n源码备份：%s\n' "$latest" "$SOURCE_BACKUP" | info_box
+    printf '更新完成\n当前版本：%s\n源码备份：%s\n' "$latest" "$SOURCE_BACKUP"
 }
 list_backups() {
     found_backup=false
@@ -533,23 +537,41 @@ restore_backup() {
     echo '恢复仅回退文件；端口数据和当前内核运行配置保持不变。'
 }
 
+menu_result() {
+    printf '\033[2J\033[H\n\n'
+    printf '%s\n' "$1" | info_box
+}
+run_menu_action() {
+    action_label=$1; shift
+    menu_result "$action_label，正在执行，请稍候…"
+    # Use a separate shell so update rollback/cleanup traps retain their own state.
+    if action_output=$(sh "$BASE/install.sh" "$@" 2>&1); then
+        [ -n "$action_output" ] || action_output='操作完成。'
+    else
+        action_output=$(printf '%s\n%s未完成，请检查上述错误。' "$action_output" "$action_label")
+    fi
+    menu_result "$action_output"
+}
 main_menu() {
-    menu_options=$(printf '本地安装 / 更新\n在线更新最新正式版\n恢复备份\n退出')
+    menu_options=$(printf '本地安装 / 更新\n在线更新\n恢复备份\n退出')
     while :; do
         menu_title=$(printf 'OpenClash Multiport  最新版本：%s  安装版本：%s\n\nOpenClash：%s\n内核：%s' "$(source_version "$BASE")" "$(installed_version)" "${version:-未知}" "${core_version:-未找到内核}")
         select_item "$menu_title" "$menu_options" || return 0
         case "$SELECTED" in
-            1) if sh "$BASE/install.sh" install; then :; else echo '安装未完成，请查看上方错误。'; fi ;;
-            2) if sh "$BASE/install.sh" update; then :; else echo '在线更新未完成，请查看上方错误。'; fi ;;
+            1) run_menu_action '本地安装 / 更新' install ;;
+            2) run_menu_action '在线更新' update ;;
             3)
-                if choose_backup; then
-                    if sh "$BASE/install.sh" restore "$choice"; then :; else echo '恢复未完成，请查看上方错误。'; fi
+                if [ "$(list_backups)" = '暂无备份' ]; then
+                    menu_result '暂无可恢复的备份。'
+                elif choose_backup; then
+                    run_menu_action '恢复备份' restore "$choice"
                 else
                     [ "$?" != 1 ] || continue
                 fi ;;
             4) return 0 ;;
         esac
-        printf '\n  按 Enter 返回菜单…'
+        printf '\n'
+        printf '%s' '按 [ Enter ] 返回菜单' | info_box right
         read -r menu_pause || return 0
     done
 }
